@@ -14,10 +14,6 @@ Write-Host "|  |  |  | |  \`--'  | |  '--'  ||  '--'  ||  |____ |  |\  \----.   
 Write-Host "|__|  |__|  \______/  |_______/ |_______/ |_______|| _| \`._____|     " -ForegroundColor Green
 Write-Host ""
 
-Write-Host "Habibi Mod Analyzer Plus" -ForegroundColor Yellow
-Write-Host "Enhanced & improvised version" -ForegroundColor DarkGray
-Write-Host ""
-
 if (-not $ModsFolderPath) {
     Write-Host "Path to your 'mods' folder? (Press Enter for default): " -ForegroundColor DarkYellow -NoNewline
     $inputPath = Read-Host
