@@ -1,127 +1,234 @@
-param([string]$path,[switch]$parallel,[switch]$checkupdates)
+param(
+    [string]$ModsFolderPath,
+    [switch]$EnableParallel,
+    [switch]$ExportToCSV,
+    [string]$CSVOutputPath = "ModList.csv",
+    [switch]$CheckForUpdates
+)
 
 Write-Host ".___  ___.   ______    _______   _______   _______ .______          " -ForegroundColor Green
 Write-Host "|   \/   |  /  __  \  |       \ |       \ |   ____||   _  \         " -ForegroundColor Green
 Write-Host "|  \  /  | |  |  |  | |  .--.  ||  .--.  ||  |__   |  |_)  |         " -ForegroundColor Green
 Write-Host "|  |\/|  | |  |  |  | |  |  |  ||  |  |  ||   __|  |      /          " -ForegroundColor Green
-Write-Host "|  |  |  | |  `--'  | |  '--'  ||  '--'  ||  |____ |  |\  \----.     " -ForegroundColor Green
+Write-Host "|  |  |  | |  \`--'  | |  '--'  ||  '--'  ||  |____ |  |\  \----.     " -ForegroundColor Green
 Write-Host "|__|  |__|  \______/  |_______/ |_______/ |_______|| _| \`._____|     " -ForegroundColor Green
 Write-Host ""
 
-if(!$path){
- Write-Host "[Prompt] Enter path (Leave blank for %APPDATA%\\.minecraft\\mods):" -ForegroundColor DarkYellow -NoNewline
- $p=Read-Host
- if($p){$path=$p}else{$path=Join-Path $env:APPDATA ".minecraft\mods"}
-}
+Write-Host "Habibi Mod Analyzer Plus" -ForegroundColor Yellow
+Write-Host "Enhanced & improvised version" -ForegroundColor DarkGray
+Write-Host ""
 
-if(-not (Test-Path $path)){Write-Host "[Error] Path not found." -ForegroundColor Red;return}
-
-function xSha1($f){
- $s=[System.Security.Cryptography.SHA1]::Create()
- $t=[System.IO.File]::OpenRead($f)
- try{$h=$s.ComputeHash($t)}finally{$t.Close()}
- ($h|ForEach-Object ToString x2)*""
-}
-
-function xModrinth($h){
- $u="https://api.modrinth.com/v2/version_file/$h"
- try{
-  $r=Invoke-WebRequest $u -ErrorAction Stop
-  if($r.StatusCode -eq 200){
-   $js=$r.Content|ConvertFrom-Json
-   $pid=$js.project_id
-   if($pid){
-    $pu="https://api.modrinth.com/v2/project/$pid"
-    $z=Invoke-WebRequest $pu -ErrorAction Stop
-    if($z.StatusCode -eq 200){
-     $zd=$z.Content|ConvertFrom-Json
-     $lv=""
-     if($checkupdates){
-      $vu="https://api.modrinth.com/v2/project/$pid/version"
-      $v=Invoke-WebRequest $vu -ErrorAction Continue
-      if($v -and $v.StatusCode -eq 200){
-       $arr=$v.Content|ConvertFrom-Json
-       if($arr.Count -gt 0){$lv=$arr[0].version_number}
-      }
-     }
-     return [pscustomobject]@{found=1;name=$zd.title;link="https://modrinth.com/mod/$($zd.slug)";latest=$lv}
+if (-not $ModsFolderPath) {
+    Write-Host "Path to your 'mods' folder? (Press Enter for default): " -ForegroundColor DarkYellow -NoNewline
+    $inputPath = Read-Host
+    if ($inputPath) {
+        $ModsFolderPath = $inputPath
     }
-   }
-  }
- }catch{}
- [pscustomobject]@{found=0;name="";link="";latest=""}
-}
-
-function xLocal($j){
- Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
- try{
-  $z=[System.IO.Compression.ZipFile]::OpenRead($j)
-  $m=$z.Entries|Where-Object{$_.FullName -eq "META-INF/MANIFEST.MF"}
-  if($m){
-   $str=$m.Open()
-   $rd=New-Object System.IO.StreamReader($str)
-   $tx=$rd.ReadToEnd()
-   $rd.Close()
-   $str.Close()
-   $z.Dispose()
-   $d=@{}
-   $tx -split "`r?`n"|ForEach-Object{
-    if($_ -match "^([^:]+):\s*(.*)$"){
-     $d[$matches[1]]=$matches[2]
+    else {
+        $ModsFolderPath = Join-Path $env:APPDATA ".minecraft\mods"
     }
-   }
-   return [pscustomobject]@{title=$d["Implementation-Title"];ver=$d["Implementation-Version"]}
-  }
-  $z.Dispose()
- }catch{}
- $null
+    Write-Host "Using: $ModsFolderPath" -ForegroundColor DarkGray
+    Write-Host ""
 }
 
-$fs=Get-ChildItem $path -Filter *.jar -File
-if(!$fs){Write-Host "[Info] No .jar files found." -ForegroundColor Yellow;return}
-Write-Host "[Info] Found $($fs.Count) .jar files." -ForegroundColor Cyan
-
-if($parallel -and $PSVersionTable.PSVersion.Major -ge 7){
- $res=$fs|ForEach-Object -Parallel{
-  $h=xSha1 $_.FullName
-  $r=xModrinth $h
-  $l=xLocal $_.FullName
-  [pscustomobject]@{file=$_.Name;sha1=$h;found=$r.found;mod=$r.name;link=$r.link;localt=$l?.title;localv=$l?.ver;latest=$r.latest}
- }
-}else{
- $res=@()
- foreach($f in $fs){
-  $h=xSha1 $f.FullName
-  $r=xModrinth $h
-  $l=xLocal $f.FullName
-  $res+=[pscustomobject]@{file=$f.Name;sha1=$h;found=$r.found;mod=$r.name;link=$r.link;localt=$l?.title;localv=$l?.ver;latest=$r.latest}
- }
+if (-not (Test-Path $ModsFolderPath -PathType Container)) {
+    Write-Host "The folder '$ModsFolderPath' doesn't exist or isn't a directory." -ForegroundColor Red
+    exit 1
 }
 
-foreach($r in $res){
- if($r.found){
-  Write-Host "`n[File]" $r.file -ForegroundColor DarkCyan
-  Write-Host " Modrinth: $($r.mod)" -ForegroundColor Green
-  Write-Host " Link: $($r.link)" -ForegroundColor Gray
-  if($checkupdates -and $r.localv -and $r.latest -and ($r.latest -ne $r.localv)){
-   Write-Host " Local Ver: $($r.localv), Latest: $($r.latest)" -ForegroundColor Yellow
-  }
- }else{
-  Write-Host "`n[File]" $r.file -ForegroundColor DarkCyan
-  Write-Host " Not on Modrinth" -ForegroundColor Red
- }
- if($r.localt -or $r.localv){
-  Write-Host " Local Info: $($r.localt) ($($r.localv))" -ForegroundColor DarkYellow
- }
- Write-Host "----------------------------------------" -ForegroundColor DarkGray
+function Get-SHA1Hash {
+    param(
+        [string]$TargetFile
+    )
+    $sha1Obj = [System.Security.Cryptography.SHA1]::Create()
+    $fileStream = [System.IO.File]::OpenRead($TargetFile)
+    try {
+        $hashBytes = $sha1Obj.ComputeHash($fileStream)
+    }
+    finally {
+        $fileStream.Close()
+    }
+    return ([BitConverter]::ToString($hashBytes)).Replace("-", "")
 }
 
-$unk=$res|Where-Object{$_.found -eq 0}
-if($unk){
- Write-Host "`n[Unrecognized Mods]" -ForegroundColor Yellow
- foreach($x in $unk){
-  Write-Host " - $($x.file)" -ForegroundColor Red
- }
+function Get-ModrinthInfo {
+    param(
+        [string]$Sha1Hash
+    )
+    $versionFileUrl = "https://api.modrinth.com/v2/version_file/$Sha1Hash"
+    try {
+        $resp = Invoke-WebRequest -Uri $versionFileUrl -Method GET -ErrorAction Stop
+        if ($resp.StatusCode -eq 200) {
+            $info = $resp.Content | ConvertFrom-Json
+            $projectId = $info.project_id
+            if ($projectId) {
+                $projUrl = "https://api.modrinth.com/v2/project/$projectId"
+                $projResp = Invoke-WebRequest -Uri $projUrl -Method GET -ErrorAction Stop
+                if ($projResp.StatusCode -eq 200) {
+                    $projData = $projResp.Content | ConvertFrom-Json
+                    $latestVersionInfo = $null
+                    if ($CheckForUpdates) {
+                        $versionsUrl = "https://api.modrinth.com/v2/project/$projectId/version"
+                        $versionsResp = Invoke-WebRequest -Uri $versionsUrl -Method GET -ErrorAction Continue
+                        if ($versionsResp -and $versionsResp.StatusCode -eq 200) {
+                            $allVersions = $versionsResp.Content | ConvertFrom-Json
+                            if ($allVersions.Count -gt 0) {
+                                $latestVersionInfo = $allVersions[0]
+                            }
+                        }
+                    }
+                    return [PSCustomObject]@{
+                        FoundOnModrinth  = $true
+                        ProjectId        = $projectId
+                        ModName          = $projData.title
+                        Slug             = $projData.slug
+                        ModrinthPage     = "https://modrinth.com/mod/$($projData.slug)"
+                        LatestModVersion = $latestVersionInfo?.version_number
+                    }
+                }
+            }
+        }
+    }
+    catch {
+        # just consider it unknown
+    }
+    return [PSCustomObject]@{
+        FoundOnModrinth  = $false
+        ProjectId        = $null
+        ModName          = $null
+        Slug             = $null
+        ModrinthPage     = $null
+        LatestModVersion = $null
+    }
 }
 
-Write-Host "`n[Analysis Complete]" -ForegroundColor Green
+function Get-LocalManifestInfo {
+    param(
+        [string]$JarPath
+    )
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    try {
+        $zipFile = [System.IO.Compression.ZipFile]::OpenRead($JarPath)
+        $manifestEntry = $zipFile.Entries | Where-Object { $_.FullName -eq "META-INF/MANIFEST.MF" }
+        if ($manifestEntry) {
+            $stream = $manifestEntry.Open()
+            $reader = New-Object System.IO.StreamReader($stream)
+            $manifestText = $reader.ReadToEnd()
+            $reader.Close()
+            $stream.Close()
+            $zipFile.Dispose()
+            $lines = $manifestText -split "`r?`n"
+            $manifestDict = @{}
+            foreach ($line in $lines) {
+                if ($line -match "^\s*([^:]+):\s*(.*)$") {
+                    $key = $matches[1].Trim()
+                    $val = $matches[2].Trim()
+                    $manifestDict[$key] = $val
+                }
+            }
+            return [PSCustomObject]@{
+                ImplementationTitle   = $manifestDict["Implementation-Title"]
+                ImplementationVersion = $manifestDict["Implementation-Version"]
+                SpecificationTitle    = $manifestDict["Specification-Title"]
+                SpecificationVersion  = $manifestDict["Specification-Version"]
+            }
+        }
+        else {
+            $zipFile.Dispose()
+        }
+    }
+    catch {}
+    return $null
+}
+
+Write-Host "Looking for .jar files in: $ModsFolderPath" -ForegroundColor DarkGray
+$modFiles = Get-ChildItem $ModsFolderPath -Filter "*.jar" -File
+
+if (-not $modFiles) {
+    Write-Host "No .jar files found in '$ModsFolderPath'." -ForegroundColor Yellow
+    exit 0
+}
+
+Write-Host "Found $($modFiles.Count) .jar files. Analyzing..." -ForegroundColor DarkCyan
+Write-Host ""
+
+function ProcessModFile {
+    param(
+        [System.IO.FileInfo]$File
+    )
+    $hashValue = Get-SHA1Hash -TargetFile $File.FullName
+    $modrinthData = Get-ModrinthInfo -Sha1Hash $hashValue
+    $localManifest = Get-LocalManifestInfo -JarPath $File.FullName
+
+    [PSCustomObject]@{
+        FileName      = $File.Name
+        FullPath      = $File.FullName
+        Sha1          = $hashValue
+        OnModrinth    = $modrinthData.FoundOnModrinth
+        ModName       = $modrinthData.ModName
+        ModSlug       = $modrinthData.Slug
+        ModrinthPage  = $modrinthData.ModrinthPage
+        LatestVersion = $modrinthData.LatestModVersion
+        LocalTitle    = $localManifest?.ImplementationTitle
+        LocalVersion  = $localManifest?.ImplementationVersion
+    }
+}
+
+$analysisResults = @()
+if ($EnableParallel -and $PSVersionTable.PSVersion.Major -ge 7) {
+    $analysisResults = $modFiles | ForEach-Object -Parallel {
+        ProcessModFile -File $_
+    }
+}
+else {
+    foreach ($mf in $modFiles) {
+        $analysisResults += ProcessModFile -File $mf
+    }
+}
+
+foreach ($entry in $analysisResults) {
+    Write-Host "[File]" $entry.FileName -ForegroundColor DarkCyan
+    if ($entry.OnModrinth) {
+        Write-Host "  Modrinth Title: $($entry.ModName)" -ForegroundColor Green
+        Write-Host "  Link: $($entry.ModrinthPage)" -ForegroundColor DarkGray
+        if ($CheckForUpdates -and $entry.LocalVersion -and $entry.LatestVersion) {
+            if ($entry.LocalVersion -ne $entry.LatestVersion) {
+                Write-Host "  Local version: $($entry.LocalVersion), Latest: $($entry.LatestVersion)" -ForegroundColor Yellow
+                Write-Host "  Possible update available!" -ForegroundColor Red
+            }
+            else {
+                Write-Host "  You're on the latest version." -ForegroundColor Green
+            }
+        }
+    }
+    else {
+        Write-Host "  Modrinth: Not recognized" -ForegroundColor Red
+    }
+    if ($entry.LocalTitle -or $entry.LocalVersion) {
+        Write-Host "  Local metadata (manifest):" -ForegroundColor DarkYellow
+        Write-Host "    Title: $($entry.LocalTitle)" -ForegroundColor DarkGray
+        Write-Host "    Version: $($entry.LocalVersion)" -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host "  No local manifest info found." -ForegroundColor DarkGray
+    }
+    Write-Host "----------------------------------------"
+}
+
+$unrecognized = $analysisResults | Where-Object { -not $_.OnModrinth }
+if ($unrecognized.Count -gt 0) {
+    Write-Host "`n[Unknown Mods]" -ForegroundColor Yellow
+    foreach ($u in $unrecognized) {
+        Write-Host " - $($u.FileName)" -ForegroundColor Red
+    }
+}
+
+if ($ExportToCSV) {
+    Write-Host "`nExporting results to CSV: $CSVOutputPath" -ForegroundColor DarkGray
+    $analysisResults |
+        Select-Object FileName, Sha1, ModName, ModSlug, ModrinthPage, LocalTitle, LocalVersion, LatestVersion |
+        Export-Csv -Path $CSVOutputPath -NoTypeInformation
+    Write-Host "CSV export complete." -ForegroundColor Green
+}
+
+Write-Host "`nDone!" -ForegroundColor Cyan
